@@ -43,15 +43,19 @@ func dealPNG(data []byte, watermark string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	wmT, err := generateWaterMark(img, watermark)
+	wmT, err := generateWaterMark(img, watermark, 20)
 	if err != nil {
 		return nil, err
 	}
-	target, err := generateMarkedImage(img, wmT)
+	marked, err := generateMarkedImage(img, wmT)
 	if err != nil {
 		return nil, err
 	}
-	target = insertShadow(target, wmT, "asdasda", 1000)
+	shadowMark, err := generateWaterMark(img, watermark, 5)
+	if err != nil {
+		return nil, err
+	}
+	target := insertShadow(marked, shadowMark, "asdasda", 5000)
 	buf := new(bytes.Buffer)
 	err = png.Encode(buf, target)
 	if err != nil {
@@ -66,14 +70,15 @@ func dealJPG(data []byte, watermark string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	wmT, err := generateWaterMark(img, watermark)
+	wmT, err := generateWaterMark(img, watermark, 20)
 	if err != nil {
 		return nil, err
 	}
-	target, err := generateMarkedImage(img, wmT)
+	marked, err := generateMarkedImage(img, wmT)
 	if err != nil {
 		return nil, err
 	}
+	target := insertShadow(marked, wmT, "asdasda", 1000)
 	buf := new(bytes.Buffer)
 	err = jpeg.Encode(buf, target, &jpeg.Options{Quality: 100})
 	if err != nil {
@@ -82,13 +87,12 @@ func dealJPG(data []byte, watermark string) ([]byte, error) {
 	outBytes := buf.Bytes()
 	return outBytes, nil
 }
-
-func generateWaterMark(ori image.Image, watermark string) (image.Image, error) {
+func generateWaterMark(ori image.Image, watermark string, rate int) (image.Image, error) {
 	font, err := initFont()
 	bg := image.Transparent
 	fg := image.NewUniform(&color.NRGBA{150, 150, 150, 255})
 	bounds := ori.Bounds()
-	unitH := bounds.Dy() / 20
+	unitH := bounds.Dy() / rate
 	if unitH < minHeight {
 		unitH = minHeight
 	}

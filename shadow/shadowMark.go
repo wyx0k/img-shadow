@@ -3,26 +3,21 @@ package shadow
 import (
 	"crypto/md5"
 	"encoding/binary"
-	"fmt"
 	"image"
 	"image/color"
 	"io"
 	"math"
 	"math/rand"
+
+	dsp "github.com/mjibson/go-dsp/fft"
 )
 
 func insertShadow(ori image.Image, mark image.Image, secret string, alpha int) image.Image {
-	// chanel := extractChanel(ori)
-	// shifted := shift(fft2d(chanel))
-	// marked := applyMatrixByMatrix(shifted, applyMatrix(float64(alpha), extractGray(mark), multiply), plus)
-	// result := ifft2d(ishift(marked))
-	// return convertChanel(ori, result)
-
-	// chanel := extractChanel(ori)
-	// shifted := shift(dsp.FFT2(chanel))
-	// marked := applyMatrixByMatrix(shifted, plus, applyMatrix(float64(alpha), multiply, extractGray(mark)))
-	// result := dsp.IFFT2(ishift(marked))
-	return convertChanel(ori, extractGray(mark))
+	chanel := extractChanel(ori)
+	shifted := shift(dsp.FFT2(chanel))
+	marked := applyMatrixByMatrix(shifted, plus, applyMatrix(float64(alpha), multiply, extractGray(mark)))
+	result := dsp.IFFT2(ishift(marked))
+	return convertChanel(ori, result)
 }
 func convertChanel(ori image.Image, matrix [][]complex128) image.Image {
 	bounds := ori.Bounds()
@@ -31,16 +26,15 @@ func convertChanel(ori image.Image, matrix [][]complex128) image.Image {
 	result := image.NewNRGBA(bounds)
 	for i := 0; i < h; i++ {
 		for j := 0; j < w; j++ {
-			rgba := ori.At(i, j)
+			rgba := ori.At(j, i) //第j列第i行，坐标：(j,i)
 			r, _, b, a := rgba.RGBA()
 			g := real(matrix[i][j]) / 255
-			fmt.Printf("%d", g)
 			if g > 255 {
 				g = 255
 			}
-			result.Set(i, j, color.RGBA{uint8(r), uint8(g), uint8(b), uint8(a)})
+			result.Set(j, i, color.RGBA{uint8(r), uint8(g), uint8(b), uint8(a)})
+			// result.Set(j, i, color.Gray{uint8(g)})
 		}
-		fmt.Println()
 	}
 	return result
 }
@@ -52,8 +46,13 @@ func extractGray(ori image.Image) [][]complex128 {
 	for i := 0; i < h; i++ {
 		line := make([]complex128, w)
 		for j := 0; j < w; j++ {
-			rgba := ori.At(i, j)
+			rgba := ori.At(j, i)
 			y := color.GrayModel.Convert(rgba).(color.Gray).Y
+			if y > 0 {
+				y = 0
+			} else {
+				y = 255
+			}
 			line[j] = complex(float64(y), 0)
 		}
 		result[i] = line
@@ -68,7 +67,7 @@ func extractChanel(ori image.Image) [][]complex128 {
 	for i := 0; i < h; i++ {
 		line := make([]complex128, w)
 		for j := 0; j < w; j++ {
-			rgba := ori.At(i, j)
+			rgba := ori.At(j, i)
 			_, g, _, _ := rgba.RGBA()
 			line[j] = complex(float64(g), 0)
 		}
@@ -79,9 +78,13 @@ func extractChanel(ori image.Image) [][]complex128 {
 func applyMatrixByMatrix(matrix1 [][]complex128, f func(a, b float64) float64, matrix2 [][]complex128) [][]complex128 {
 	h := len(matrix2)
 	w := len(matrix2[0])
+	limith := len(matrix1)
+	limitw := len(matrix1[0])
 	for i := 0; i < h; i++ {
 		for j := 0; j < w; j++ {
-			matrix1[i][j] = complex(f(real(matrix2[i][j]), real(matrix1[i][j])), imag(matrix1[i][j]))
+			if h <= limith && w <= limitw {
+				matrix1[i][j] = complex(f(real(matrix2[i][j]), real(matrix1[i][j])), imag(matrix1[i][j]))
+			}
 		}
 	}
 	return matrix1
