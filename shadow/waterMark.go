@@ -38,6 +38,21 @@ func DealImg(data []byte, watermark string, ext string, ch chan float64) ([]byte
 	}
 	return nil, errors.New("图片处理失败")
 }
+
+//ReadImg 读取图片的暗水印
+func ReadImg(data []byte, ext string) ([]byte, error) {
+	if len(ext) == 0 {
+		return nil, errors.New("文件类型为空")
+	}
+	if strings.EqualFold(ext, ".png") {
+		return readPNG(data)
+	} else if strings.EqualFold(ext, ".jpg") {
+		return readJPG(data)
+	} else if strings.EqualFold(ext, ".jpeg") {
+		return readJPG(data)
+	}
+	return nil, errors.New("图片处理失败")
+}
 func dealPNG(data []byte, watermark string) ([]byte, error) {
 	img, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
@@ -145,4 +160,32 @@ func initFont() (*truetype.Font, error) {
 
 func isHan(r rune) bool {
 	return unicode.Is(unicode.Han, r)
+}
+func readPNG(data []byte) ([]byte, error) {
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	target := readShadow(img)
+	buf := new(bytes.Buffer)
+	err = png.Encode(buf, target)
+	if err != nil {
+		return nil, err
+	}
+	outBytes := buf.Bytes()
+	return outBytes, nil
+}
+func readJPG(data []byte) ([]byte, error) {
+	img, err := jpeg.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	target := readShadow(img)
+	buf := new(bytes.Buffer)
+	err = jpeg.Encode(buf, target, &jpeg.Options{Quality: 100})
+	if err != nil {
+		return nil, err
+	}
+	outBytes := buf.Bytes()
+	return outBytes, nil
 }

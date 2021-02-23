@@ -3,6 +3,7 @@ package shadow
 import (
 	"crypto/md5"
 	"encoding/binary"
+	"fmt"
 	"image"
 	"image/color"
 	"io"
@@ -12,14 +13,61 @@ import (
 	dsp "github.com/mjibson/go-dsp/fft"
 )
 
-func insertShadow(ori image.Image, mark image.Image, secret string, alpha int) image.Image {
-	chanel := extractChanel(ori)
-	shifted := shift(dsp.FFT2(chanel))
-	marked := applyMatrixByMatrix(shifted, plus, applyMatrix(float64(alpha), multiply, extractGray(mark)))
-	result := dsp.IFFT2(ishift(marked))
-	return convertChanel(ori, result)
+func readShadow(ori image.Image) image.Image {
+	r, g, b := extractChanel(ori)
+	shiftedR := shift(dsp.FFT2(r))
+	shiftedG := shift(dsp.FFT2(g))
+	shiftedB := shift(dsp.FFT2(b))
+	result := applyMatrixByMatrix(shiftedR, plus, shiftedG)
+	result = applyMatrixByMatrix(result, plus, shiftedB)
+	return convertChanel(ori, shiftedR, shiftedG, shiftedB)
 }
-func convertChanel(ori image.Image, matrix [][]complex128) image.Image {
+func insertShadow(ori image.Image, mark image.Image, secret string, alpha int) image.Image {
+	markLayer := fillMarkLayer(extractGray(mark), ori.Bounds())
+	alphaMarkLayer := applyMatrix(float64(alpha), multiply, markLayer)
+	r, g, b := extractChanel(ori)
+	shiftedR := shift(dsp.FFT2(r))
+	markedR := applyMatrixByMatrix(shiftedR, plus, alphaMarkLayer)
+	shiftedG := shift(dsp.FFT2(g))
+	markedG := applyMatrixByMatrix(shiftedG, plus, alphaMarkLayer)
+	shiftedB := shift(dsp.FFT2(b))
+	markedB := applyMatrixByMatrix(shiftedB, plus, alphaMarkLayer)
+	resultR := dsp.IFFT2(ishift(markedR))
+	resultG := dsp.IFFT2(ishift(markedG))
+	resultB := dsp.IFFT2(ishift(markedB))
+	return convertChanel(ori, resultR, resultG, resultB)
+}
+func fillMarkLayer(matrix [][]complex128, bounds image.Rectangle) [][]complex128 {
+	limith := len(matrix)
+	limitw := len(matrix[0])
+
+	w := bounds.Dx()
+	h := bounds.Dy()
+	fmt.Printf("limitw:%d - limith：%d", limitw, limith)
+	fmt.Printf("    w:%d - h：%d  ", w, h)
+	layer := make([][]complex128, h)
+	for i := 0; i < h; i++ {
+		if len(layer[i]) == 0 {
+			tmp := make([]complex128, w)
+			layer[i] = tmp
+		}
+		if len(layer[h-1-i]) == 0 {
+			tmp2 := make([]complex128, w)
+			layer[h-1-i] = tmp2
+		}
+		for j := 0; j < w; j++ {
+			if i < limith && j < limitw {
+				layer[i][j] = matrix[i][j]
+				// fmt.Printf("    i:%d - j：%d  \n", i, j)
+				layer[h-1-i][w-1-j] = matrix[i][j]
+				// fmt.Printf("	h-1-i:%d - w-1-j：%d  \n", h-1-i, w-1-j)
+			}
+
+		}
+	}
+	return layer
+}
+func convertChanel(ori image.Image, matrixR, matrixG, matrixB [][]complex128) image.Image {
 	bounds := ori.Bounds()
 	w := bounds.Dx()
 	h := bounds.Dy()
@@ -27,13 +75,38 @@ func convertChanel(ori image.Image, matrix [][]complex128) image.Image {
 	for i := 0; i < h; i++ {
 		for j := 0; j < w; j++ {
 			rgba := ori.At(j, i) //第j列第i行，坐标：(j,i)
-			r, _, b, a := rgba.RGBA()
-			g := real(matrix[i][j]) / 255
+			_, _, _, a := rgba.RGBA()
+			r := real(matrixR[i][j]) / 255
+			if r > 255 {
+				r = 255
+			}
+			g := real(matrixG[i][j]) / 255
 			if g > 255 {
 				g = 255
 			}
+			b := real(matrixB[i][j]) / 255
+			if b > 255 {
+				b = 255
+			}
 			result.Set(j, i, color.RGBA{uint8(r), uint8(g), uint8(b), uint8(a)})
-			// result.Set(j, i, color.Gray{uint8(g)})
+		}
+	}
+	return result
+}
+func convertGray(ori image.Image, matrix [][]complex128) image.Image {
+	bounds := ori.Bounds()
+	w := bounds.Dx()
+	h := bounds.Dy()
+	result := image.NewNRGBA(bounds)
+	for i := 0; i < h; i++ {
+		for j := 0; j < w; j++ {
+			g := real(matrix[i][j]) / 255
+			if g > 255 {
+				g = 0
+			} else {
+				g = 255
+			}
+			result.Set(j, i, color.Gray{uint8(g)})
 		}
 	}
 	return result
@@ -59,27 +132,38 @@ func extractGray(ori image.Image) [][]complex128 {
 	}
 	return result
 }
-func extractChanel(ori image.Image) [][]complex128 {
+func extractChanel(ori image.Image) (r, g, b [][]complex128) {
 	bounds := ori.Bounds()
 	w := bounds.Dx()
 	h := bounds.Dy()
-	result := make([][]complex128, h)
+	resultR := make([][]complex128, h)
+	resultG := make([][]complex128, h)
+	resultB := make([][]complex128, h)
 	for i := 0; i < h; i++ {
-		line := make([]complex128, w)
+		lineR := make([]complex128, w)
+		lineG := make([]complex128, w)
+		lineB := make([]complex128, w)
 		for j := 0; j < w; j++ {
 			rgba := ori.At(j, i)
-			_, g, _, _ := rgba.RGBA()
-			line[j] = complex(float64(g), 0)
+			r, g, b, _ := rgba.RGBA()
+			lineR[j] = complex(float64(r), 0)
+			lineG[j] = complex(float64(g), 0)
+			lineB[j] = complex(float64(b), 0)
 		}
-		result[i] = line
+		resultR[i] = lineR
+		resultG[i] = lineG
+		resultB[i] = lineB
 	}
-	return result
+	return resultR, resultG, resultB
 }
 func applyMatrixByMatrix(matrix1 [][]complex128, f func(a, b float64) float64, matrix2 [][]complex128) [][]complex128 {
 	h := len(matrix2)
 	w := len(matrix2[0])
 	limith := len(matrix1)
 	limitw := len(matrix1[0])
+	fmt.Println()
+	fmt.Printf("limitw:%d - limith：%d \n", limitw, limith)
+	fmt.Printf("    w:%d - h：%d  \n", w, h)
 	for i := 0; i < h; i++ {
 		for j := 0; j < w; j++ {
 			if h <= limith && w <= limitw {
