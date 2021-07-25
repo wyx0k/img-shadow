@@ -1,0 +1,8 @@
+kind: pipeline
+name: img-shadow
+
+steps:
+  - name: test
+    image: alpine
+    commands:
+      - echo "install"
